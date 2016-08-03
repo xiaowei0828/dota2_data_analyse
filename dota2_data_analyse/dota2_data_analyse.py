@@ -159,7 +159,8 @@ def GetHeroesPickedInfo(league_name):
 def GetHeroesStatisticsForLeague(league_name):
     matches_detail = GetMatchesDetailFor(league_name)
     hero_info_dict = {}
-
+    hero_banned_info = {}
+    hero_win_info = {}
     for match_detail in matches_detail:
         for player_info in match_detail['players']:
             hero_id = player_info['hero_id']
@@ -167,7 +168,7 @@ def GetHeroesStatisticsForLeague(league_name):
                 continue
 
             if hero_id not in hero_info_dict:
-                hero_info = {'name': player_info['hero_name'], 'total_count': 1, 'total_kills': player_info['kills'],
+                hero_info = {'name': player_info['hero_name'], 'total_count': 1, 'win_count': 0, 'total_kills': player_info['kills'],
                              'average_kills': 0, 'total_deaths': player_info['deaths'], 'average_deaths': 0, 
                              'total_assists': player_info['assists'], 'average_assists': 0, 'total_gold_per_min': player_info['gold_per_min'], 
                              'average_gold_per_min': 0, 'total_xp_per_min': player_info['xp_per_min'], 'average_xp_per_min': 0,
@@ -185,6 +186,28 @@ def GetHeroesStatisticsForLeague(league_name):
                 hero_info_dict[hero_id]['total_tower_damage'] += player_info['tower_damage']
                 hero_info_dict[hero_id]['total_hero_healing'] += player_info['hero_healing']
 
+        win_team = 0
+        if not match_detail['radiant_win']:
+            win_team = 1
+
+        for ban_pick_info in match_detail['picks_bans']:
+            if ban_pick_info['is_pick'] == False:
+                if ban_pick_info['hero_id'] in hero_banned_info:
+                    hero_banned_info[ban_pick_info['hero_id']] += 1
+                else:
+                    hero_banned_info[ban_pick_info['hero_id']] = 1
+            else:
+                if ban_pick_info['hero_id'] in hero_win_info:
+                    if ban_pick_info['team'] is win_team:
+                        hero_win_info[ban_pick_info['hero_id']] += 1
+                else:
+                    temp = {}
+                    if ban_pick_info['team'] is win_team:
+                        hero_win_info[ban_pick_info['hero_id']] = 1
+                    else:
+                        hero_win_info[ban_pick_info['hero_id']] = 0
+
+
     for hero_id in hero_info_dict:
         hero_info = hero_info_dict[hero_id]
         total_count = hero_info['total_count']
@@ -197,6 +220,8 @@ def GetHeroesStatisticsForLeague(league_name):
         hero_info['average_tower_damage'] = int(hero_info['total_tower_damage'] / total_count)
         hero_info['average_hero_healing'] = int(hero_info['total_hero_healing'] / total_count)
 
+        hero_info['win_count'] = hero_win_info[hero_id]
+    
     return hero_info_dict
     
 
