@@ -11,8 +11,13 @@ import urllib
 import urllib.parse
 import binascii
 import threading
+import codecs
+import time
 
 cookie_file = 'cookie.txt'
+
+headers = {
+           'User-Agent' : 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.87 Safari/537.36'}
 
 class launcher():
 
@@ -23,7 +28,7 @@ class launcher():
     def get_prelogin_args(self):
 
         '''
-        ¸Ãº¯ÊıÓÃÓÚÄ£ÄâÔ¤µÇÂ½¹ı³Ì£¬²¢»ñÈ¡·şÎñÆ÷·µ»ØµÄ nonce£¬ servertime, pub_key µÈĞÅÏ¢
+        è·å–é¢„ç™»å½•å‚æ•°
         '''
         json_pattern = re.compile('\((.*)\)')
         url = 'http://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su=&' + self.get_encrypted_name() + '&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.18)'
@@ -46,7 +51,7 @@ class launcher():
         pw_string = str(data['servertime']) + '\t' + str(data['nonce']) + '\n' + str(self.password)
         key = rsa.PublicKey(int(data['pubkey'], 16), rsa_e)
         pw_encrypted = rsa.encrypt(pw_string.encode('utf-8'), key)
-        self.password = '' #Çå¿Õpassword
+        self.password = '' #????password
         passwd = binascii.b2a_hex(pw_encrypted)
         print(passwd)
         return passwd
@@ -58,13 +63,9 @@ class launcher():
 
     def enableCookies(self):
 
-        #½¨Á¢Ò»¸öcookiesÈİÆ÷
         cookie_container = http.cookiejar.MozillaCookieJar(cookie_file)
-        #½«Ò»¸öcookiesÈİÆ÷ºÍÒ»¸öHTTPµÄcookieµÄ´¦ÀíÆ÷°ó¶¨
         cookie_support = urllib.request.HTTPCookieProcessor(cookie_container)
-        #´´½¨Ò»¸öopener£¬ÉèÖÃÒ»¸öhandlerÓÃÓÚ´¦ÀíhttpµÄurl´ò¿ª
         opener = urllib.request.build_opener(cookie_support, urllib.request.HTTPHandler)
-        #°²×°opener£¬´Îºóµ÷ÓÃurlopen()Ê±»áÊ¹ÓÃ°²×°¹ıµÄopener¶ÔÏó
         urllib.request.install_opener(opener)
 
         return cookie_container
@@ -100,10 +101,6 @@ class launcher():
         data = self.get_prelogin_args()
         post_data = self.build_post_data(data)
 
-        headers = {
-            "User-Agent":"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.87 Safari/537.36"
-            }
-
         try:
             request = urllib.request.Request(url=url, data=post_data,headers = headers)
             response = urllib.request.urlopen(request)
@@ -137,36 +134,39 @@ class launcher():
 class GetFollows(threading.Thread):
     
     lock = threading.RLock()
-    '''
-    ÓÃÀ´»ñÈ¡Ò»Ò³µÄ¹Ø×¢ÕßĞÅÏ¢
-    '''
+
     def __init__(self, page_num, follows_info_array):
         threading.Thread.__init__(self)
         self.page_num = page_num
         self.follows_info_array = follows_info_array
 
     def run(self):
-        follows_url_prefix = 'http://weibo.com/1927698523/follow?'
-        params = urllib.parse.urlencode(
-        {'Pl_Official_RelationMyfollow__108_page': self.page_num})
-        follows_url = follows_url_prefix + params
-        request = urllib.request.Request(follows_url)
-        response = opener.open(request)
-        page = response.read().decode('utf-8')
+        while True:
+            follows_url_prefix = 'http://weibo.com/p/1005051927698523/follow?t=1&pids=Pl_Official_RelationMyfollow__108&cfs=&'
+            params = urllib.parse.urlencode(
+            {'Pl_Official_RelationMyfollow__108_page': self.page_num})
+            follows_url = follows_url_prefix + params + '#Pl_Official_RelationMyfollow__108'
+            request = urllib.request.Request(url=follows_url,headers=headers)
+            response = opener.open(request)
+            page = response.read().decode('utf-8')
 
-        nick_pattern = re.compile('gid=.*?&nick=(.*?)&uid=(.*?)&')
-        matches = nick_pattern.findall(page)
-        file = open('page_data' + str(self.page_num), 'w')
-        file.write(page)
-        GetFollows.lock.acquire()
-        for match in matches:
-            self.follows_info_array.append(match)
-        print("Thread " + str(self.page_num) + " count:" + str(len(matches)))
-        GetFollows.lock.release()
+            nick_pattern = re.compile('gid=.*?&nick=(.*?)&uid=(.*?)&')
+            matches = nick_pattern.findall(page)
+            print("Thread " + str(self.page_num) + " count:" + str(len(matches)))
+            if len(matches) == 30 or self.page_num == 11:
+                GetFollows.lock.acquire()
+                for match in matches:
+                    self.follows_info_array.append(match)
+                GetFollows.lock.release()
+                break
+            #file = codecs.open('page_data' + str(self.page_num), mode='w', encoding='utf-8')
+            #file.write(page)
+           
 
 #launcher = launcher('1243764818@qq.com', 'xiaowei19900828')
 
 #launcher.login()
+
 cookie = http.cookiejar.MozillaCookieJar()
 cookie.load(cookie_file, ignore_discard=True, ignore_expires=True)
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie))
