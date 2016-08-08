@@ -125,6 +125,7 @@ class GetMatchDetail(threading.Thread):
                     succeed = 1
                 except json.JSONDecodeError as e:
                     print(e)
+                    print("get " + str(match_id) + " failed")
                 except:
                     print("get " + str(match_id) + " failed")
 
@@ -258,7 +259,7 @@ if __name__ == '__main__':
 
 
     #获取联赛的英雄统计数据
-    heroes_statistics = GetHeroesStatisticsForLeague(target_league_name)
+    heroes_statistics = GetHeroesStatisticsForLeague(target_league_name, cluster_name = 'US West')
 
     #获取英雄选择的统计数据
     #heroes_pick_info = {hero_id : heroes_statistics[hero_id]['total_count'] for hero_id in heroes_statistics}
@@ -346,7 +347,7 @@ if __name__ == '__main__':
     heroes_win_rate_info = {hero_id: {'win_rate': round(heroes_statistics[hero_id]['win_count']/heroes_statistics[hero_id]['total_count'], 2), 
                                       'total_count': heroes_statistics[hero_id]['total_count']} for hero_id in heroes_statistics}
 
-    sorted_heroes_win_rate_info = sorted(heroes_win_rate_info.items(), key = lambda d:d[1]['win_rate'], reverse = True)
+    sorted_heroes_win_rate_info = sorted(heroes_win_rate_info.items(), key = lambda d:d[1]['total_count'], reverse = True)
 
     for (hero_id, info_dict) in sorted_heroes_win_rate_info:
         msg = GetLocalizedNameFromId(hero_id) + " 胜率： " + str(info_dict['win_rate']) + "  上场次数： "  + str(info_dict['total_count'])
