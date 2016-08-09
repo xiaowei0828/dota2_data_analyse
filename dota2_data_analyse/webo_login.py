@@ -162,8 +162,9 @@ class GetFollows(threading.Thread):
             #file = codecs.open('page_data' + str(self.page_num), mode='w', encoding='utf-8')
             #file.write(page)
            
-
-#launcher = launcher('1243764818@qq.com', 'xiaowei19900828')
+user_name = input('user name:')
+password = input('password:')
+#launcher = launcher(user_name, password)
 
 #launcher.login()
 
