@@ -66,11 +66,22 @@ def GetLeagueIdFromName(league_name):
             break
     return target_league_id
 
-def GetMatchesDetailFor(league_name):
+def GetMatchesDetailFor(league_name, **kargs):
+
+    #parse the kargs
+    need_refresh = False
+    if 'need_refresh' in kargs:
+        need_refresh = kargs['need_refresh']
+
+    cluster_name = None
+    if 'cluster_name' in kargs:
+        cluster_name = kargs['cluster_name']
+
+
+    matches_detail = []
     path = pathlib.Path(league_name)
-    if path.exists():
+    if path.exists() and not need_refresh:
         matches_detail = pickle.load(path.open(mode='rb'))
-        return matches_detail
     else:
         league_id = GetLeagueIdFromName(league_name)
         if league_id != -1:
@@ -87,7 +98,6 @@ def GetMatchesDetailFor(league_name):
             total_matches_count = matches_id.qsize()
             print('total matches count: ' + str(total_matches_count))
             thread_count = int(total_matches_count / 10)
-            matches_detail = []
             thread_pool = [GetMatchDetail(matches_id, matches_detail) for i in range(thread_count) ]
             for thread in thread_pool:
                 thread.start()
@@ -95,10 +105,16 @@ def GetMatchesDetailFor(league_name):
                 thread.join()
 
             pickle.dump(matches_detail, path.open(mode='wb'))
-            return matches_detail
-        return None
-
-
+        
+    sub_matches_detail = []
+    if len(matches_detail) != 0:
+        if cluster_name != None:
+            for match_detail in matches_detail:
+                if match_detail['cluster_name'] == kargs['cluster_name']:
+                    sub_matches_detail.append(match_detail)
+        else:
+            sub_matches_detail = matches_detail
+    return sub_matches_detail
 
 class GetMatchDetail(threading.Thread):
     matches_detail_lock = threading.RLock()
@@ -136,14 +152,8 @@ class GetMatchDetail(threading.Thread):
             GetMatchDetail.matches_detail_lock.release()
 
 def GetHeroesBannedInfoForLegue(league_name, **kargs):
-    matches_detail = GetMatchesDetailFor(league_name)
-    sub_matches_detail = []
-    if 'cluster_name' in kargs:
-        for match_detail in matches_detail:
-            if match_detail['cluster_name'] == kargs['cluster_name']:
-                sub_matches_detail.append(match_detail)
-    else:
-        sub_matches_detail = matches_detail
+
+    sub_matches_detail = GetMatchesDetailFor(league_name, **kargs)
 
     heroes_banned = {}
     for match_detail in sub_matches_detail:
@@ -158,15 +168,8 @@ def GetHeroesBannedInfoForLegue(league_name, **kargs):
     return sorted_heroes_banned
 
 def GetHeroesStatisticsForLeague(league_name, **kargs):
-    matches_detail = GetMatchesDetailFor(league_name)
 
-    sub_matches_detail = []
-    if 'cluster_name' in kargs:
-        for match_detail in matches_detail:
-            if match_detail['cluster_name'] == kargs['cluster_name']:
-                sub_matches_detail.append(match_detail)
-    else:
-        sub_matches_detail = matches_detail
+    sub_matches_detail = GetMatchesDetailFor(league_name, **kargs)
 
     hero_info_dict = {}
     hero_banned_info = {}
@@ -253,13 +256,13 @@ def GetHeroesStatisticsForLeague(league_name, **kargs):
 
 if __name__ == '__main__':
 
-    GetLeaguesInfo()
+   #GetLeaguesInfo()
 
     target_league_name = u"2016年国际邀请赛"
 
 
     #获取联赛的英雄统计数据
-    heroes_statistics = GetHeroesStatisticsForLeague(target_league_name, cluster_name = 'US West')
+    heroes_statistics = GetHeroesStatisticsForLeague(target_league_name, cluster_name = 'US West', need_refresh = True)
 
     #获取英雄选择的统计数据
     #heroes_pick_info = {hero_id : heroes_statistics[hero_id]['total_count'] for hero_id in heroes_statistics}
