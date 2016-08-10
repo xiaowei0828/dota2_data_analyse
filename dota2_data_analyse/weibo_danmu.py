@@ -12,7 +12,7 @@ import urllib.parse
 import json
 
 douyu_host_url = 'http://www.douyu.com/'
-roomt_id = '58428'
+room_id = '58428'
 
 buffer_size = 1024
 
@@ -151,7 +151,7 @@ def fetch_room_info(url):
 
     return auth_server_ip, auth_server_port
 
-target_url = douyu_host_url + roomt_id
+target_url = douyu_host_url + room_id
 auth_server_ip, auth_server_port = fetch_room_info(target_url)
 address = (auth_server_ip, int(auth_server_port))
 auth_info = login_danmu_auth_server(address)
