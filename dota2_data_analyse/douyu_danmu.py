@@ -9,10 +9,18 @@ import threading
 import urllib
 import urllib.request
 import urllib.parse
+import http.cookiejar
 import json
+import ssl
+import os
+
+headers = { 'User-Agent' : 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.87 Safari/537.36'}
+
+douyu_cookie_file = 'douyu_cookie'
 
 douyu_host_url = 'http://www.douyu.com/'
-roomt_id = '58428'
+passport_douyu_host_url = 'https://passport.douyu.com/'
+roomt_id = '284584'
 
 buffer_size = 1024
 
@@ -106,8 +114,8 @@ def login_danmu_auth_server(address):
         sessionid = matches[1]
    
         recv_data_str = get_next_data(s)
-
-        recv_data_str = get_next_data(s)
+        while 'type@=setmsggroup' not in recv_data_str:
+            recv_data_str = get_next_data(s)
 
         gid = re.search('/gid@=(\d+)/', recv_data_str).group(1)
 
@@ -151,10 +159,101 @@ def fetch_room_info(url):
 
     return auth_server_ip, auth_server_port
 
-target_url = douyu_host_url + roomt_id
-auth_server_ip, auth_server_port = fetch_room_info(target_url)
-address = (auth_server_ip, int(auth_server_port))
-auth_info = login_danmu_auth_server(address)
+def enable_cookie():
+    cookie_container = http.cookiejar.MozillaCookieJar(douyu_cookie_file)
+    cookie_support = urllib.request.HTTPCookieProcessor(cookie_container)
+    opener = urllib.request.build_opener(cookie_support, urllib.request.HTTPHandler)
+    urllib.request.install_opener(opener)
+    return cookie_container
+
+def get_https_opener(cookie_jar):
+    context = ssl._create_unverified_context()
+    https_handler = urllib.request.HTTPSHandler(context = context)
+
+    cookie_support = urllib.request.HTTPCookieProcessor(cookie_jar)
+
+    opener = urllib.request.build_opener(cookie_support, https_handler)
+    
+    return opener
+
+def login_douyu(user_name, password):
+       
+    login_result = None
+
+    cookie_jar = None
+    if os.path.exists(douyu_cookie_file):
+        cookie_jar = http.cookiejar.MozillaCookieJar()
+        cookie_jar.load(douyu_cookie_file)
+        login_result = get_info_from_cookie_jar(cookie_jar)
+        if login_result != None:
+            return login_result
+        
+    cookie_jar = http.cookiejar.MozillaCookieJar(douyu_cookie_file)
+
+    opener = get_https_opener(cookie_jar)
+
+    # Get captcha
+    captcha_id = str(int(time.time() * 1000))
+    captch_url = passport_douyu_host_url + 'api/captcha?v=' + captcha_id
+    captcha_request = urllib.request.Request(captch_url, headers = headers)
+    response = opener.open(captcha_request)
+    captcha_code = input('captcha code:')
+
+    md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
+    params = urllib.parse.urlencode({'username': user_name, 
+                            'password': md5_password, 
+                            'login_type': 'nickname',
+                            'client_id': 1,
+                            'captcha_word': captcha_code,
+                            't': int(time.time() * 1000)
+                            })
+    login_url = passport_douyu_host_url + 'iframe/login?' + params
+    
+    login_request = urllib.request.Request(login_url, headers = headers)
+    response = opener.open(login_request).read().decode()
+    json_resonse = response.strip('()')
+    response_dict = json.loads(json_resonse)
+    if response_dict['error'] == 0:
+        code = response_dict['data']['code']
+        uid = response_dict['data']['uid']
+
+        params = urllib.parse.urlencode({'code': code,
+                                         'uid' : uid,
+                                         'client_id': 1
+                                        })
+
+        auth_url = douyu_host_url + 'api/passport/login?' + params
+        auth_request = urllib.request.Request(auth_url, headers=headers)
+        response = opener.open(auth_request).read().decode()
+        cookie_jar.save(ignore_discard=True, ignore_expires=True)
+        login_result = get_info_from_cookie_jar(cookie_jar)
+
+    return login_result
+
+def get_info_from_cookie_jar(cookie_jar):
+    info = {}
+    for cookie in cookie_jar:
+        if 'acf_username' == cookie.name:
+            info['user_name'] = cookie.value
+        if 'acf_uid' == cookie.name:
+            info['uid'] = cookie.value
+        if 'acf_devid' == cookie.name:
+            info['devid'] = cookie.value
+        if 'acf_nickname' == cookie.name:
+            info['nick_name'] = cookie.value
+    if len(info) == 0:
+        return None
+    return info
+
+user_name = input('user name:')
+password = input('password:')
+
+login_result = login_douyu(user_name, password)
+
+#target_url = douyu_host_url + roomt_id
+#auth_server_ip, auth_server_port = fetch_room_info(target_url)
+#address = (auth_server_ip, int(auth_server_port))
+#auth_info = login_danmu_auth_server(address)
 
 #group_id = auth_info[0]
 #get_danmu_thread = threading.Thread(target=get_danmu, args=(roomt_id,group_id))
