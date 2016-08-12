@@ -27,6 +27,7 @@ class LoginClient:
         self.__user_name = user_name
         self.__password = password
         self.__login_info = None
+        self.__room_info_dict = {}
         if os.path.exists(LoginClient.__douyu_cookie_file):
             self.__cookie_jar = http.cookiejar.MozillaCookieJar()
             self.__cookie_jar.load(LoginClient.__douyu_cookie_file)
@@ -120,27 +121,44 @@ class LoginClient:
     def get_login_info(self):
         return self.__login_info
 
-    def get_auth_server_addr(self, room_id):
+    def get_room_info(self, room_id):
+        if room_id in self.__room_info_dict:
+            return self.__room_info_dict[room_id]
+
+        room_info = {}
+
         url = LoginClient.__douyu_host_url + room_id
         html = self.__http_opener.open(url).read().decode()
 
-        room_info_json = re.search('var\s\$ROOM\s=\s({.*});', html).group(1)
+        match = re.search('var\s\$ROOM\s=\s({.*});', html)
+        if match != None:
+            room_info_json = match.group(1)
+            room_info_dict = json.loads(room_info_json)
+            room_info['room_info'] = room_info_dict
 
-        auth_server_json = re.search('\$ROOM\.args\s=\s({.*});', html).group(1)
+        match = re.search('\$ROOM\.args\s=\s({.*});', html)
+        if match != None:
+            auth_server_json = match.group(1)
+            auth_server_dict = json.loads(auth_server_json)
+            auth_server_list = json.loads(urllib.parse.unquote(auth_server_dict['server_config']))
+            room_info['auth_server_list'] = auth_server_list
 
-        json_object = None
-        try:
-            json_object = json.loads(auth_server_json)
-        except ValueError as e:
-            print(e)
-            return None
-    
-        servers = urllib.parse.unquote(json_object['server_config'])
-        servers_array = json.loads(servers)
-        auth_server_ip = servers_array[0]['ip']
-        auth_server_port = int(servers_array[0]['port'])
-
-        return auth_server_ip, auth_server_port
+        gift_infos = re.findall('data-type="gift"[^>]*>', html, re.M)
+        gift_info_dict = {}
+        for gift_info in gift_infos:
+            matches = re.findall('([^=\s]*)="([^"]*)"', gift_info)
+            gift_info = {}
+            gift_id = str()
+            for match in matches:
+                if match[0] == 'data-giftid':
+                    gift_id = match[1]
+                else:
+                    gift_info[match[0]] = match[1]
+            gift_info_dict[gift_id] = gift_info
+        if len(gift_info_dict) != 0:
+            room_info['gift_info'] = gift_info_dict
+        self.__room_info_dict[room_id] = room_info
+        return room_info
 
 class DanmuClient:
 
@@ -154,6 +172,7 @@ class DanmuClient:
         self.__user_name = user_name
         self.__password = password
         self.__room_id = room_id
+        self.__room_info = None
         self.__recv_danmu_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__auth_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -166,12 +185,25 @@ class DanmuClient:
     def __get_next_data(self, socket):
         try:
             data_len_bytes = socket.recv(4)
+            recv_len = len(data_len_bytes)
+            while recv_len < 4:
+                left_len = 4 - recv_len
+                data_len_bytes += socket.recv(left_len)
+                recv_len = len(data_len_bytes)
+
             data_len = int.from_bytes(data_len_bytes, byteorder='little')
             data = socket.recv(data_len)
+            recv_len = len(data)
+            while recv_len < data_len:
+                left_len = data_len - recv_len
+                data += socket.recv(left_len)
+                recv_len = len(data)
             #print(data)
             recv_data_str = data[8:-1].decode()
             return recv_data_str
         except os.error as e:
+            print(e)
+        except UnicodeDecodeError as e:
             print(e)
 
     def __wrap_danmu_msg(self, content):
@@ -197,12 +229,24 @@ class DanmuClient:
             return parse_result
         return None
 
-    def __keep_alive(self):
+    def __auth_socket_keep_alive(self):
         while True:
             time_str = str(int(time.time()))
             data = 'type@=keeplive/tick@='+ time_str
             self.__send_msg(data, self.__auth_socket)
             time.sleep(45)
+
+    def __recv_socket_keep_alive(self):
+        while True:
+            data = 'type@=mrkl'
+            self.__send_msg(data, self.__recv_danmu_socket)
+            time.sleep(45)
+
+    def __process_mrkl(self, danmu):
+        pass
+
+    def __process_chat_msg(self, danmu):
+        pass
 
     def login_danmu_auth_server(self):
         # First login douyu to get some msg
@@ -211,7 +255,13 @@ class DanmuClient:
             return False
 
         login_info = self.__douyu_login_client.get_login_info()
-        auth_server = self.__douyu_login_client.get_auth_server_addr(self.__room_id)
+        self.__room_info = self.__douyu_login_client.get_room_info(self.__room_id)
+        
+        # Select an auth server
+        if 'auth_server_list' not in self.__room_info:
+            print('Get auth server failed')
+
+        auth_server = (self.__room_info['auth_server_list'][0]['ip'], int(self.__room_info['auth_server_list'][0]['port']))
 
         self.__auth_socket.connect(auth_server)
 
@@ -238,8 +288,7 @@ class DanmuClient:
             parse_result = self.__parse_recv_msg(recv_data_str)
             self.__gid = parse_result['gid']
 
-            threading._start_new_thread(self.__keep_alive, ())
-
+            threading._start_new_thread(self.__auth_socket_keep_alive, ())
             return True
 
         return False
@@ -268,6 +317,7 @@ class DanmuClient:
                 join_group = 'type@=joingroup/rid@=' + self.__room_id + '/gid@=' + self.__gid
 
             self.__send_msg(join_group, self.__recv_danmu_socket)
+            threading._start_new_thread(self.__recv_socket_keep_alive, ())
 
     def get_one_danmu(self):
         recv_data_str = self.__get_next_data(self.__recv_danmu_socket)
@@ -277,25 +327,67 @@ class DanmuClient:
         data = 'type@=chatmessage/receiver@=0/content@=' + msg +'/scope@=/col@=0'
         self.__send_msg(data, self.__auth_socket)
 
+    def parse_danmu(self, danmu):
+        if 'type' in danmu:
+
+            function_name = '__process_' + danmu['type']
+            call_function = function_name + '(self, danmu)'
+            eval(call_function)
+
+            if danmu['type'] == 'chatmsg':
+                try:
+                    print(danmu['nn'] + ' : ' + danmu['txt'])
+                except:
+                    print('meet some special characters')
+            elif danmu['type'] == 'uenter':
+                print(danmu['nn'] + '(level ' + str(danmu['level'] + ') 进入了房间'))
+            elif danmu['type'] == 'onlinegift':
+                print(danmu['nn'] + '领取了' + danmu['sil'] + '个鱼丸')
+            elif danmu['type'] == 'dgb':
+                if self.__room_info == None:
+                    self.__room_info = self.__douyu_login_client.get_room_info()
+                gitf_info_dict = self.__room_info['gift_info']
+                print(danmu['nn'] + '赠送了 ' + gitf_info_dict[danmu['gfid']]['data-giftname'])
+            elif danmu['type'] == 'ssd':
+                print(danmu['content'])
+            elif danmu['type'] == 'spbc':
+                print(danmu['sn'] + '赠送给' + danmu['dn'] + ' ' + danmu['gc'] + 'x' + danmu['gn'])
+            elif danmu['type'] == 'newblackres':
+                print(danmu['dnic'] + ' 被 ' + danmu['snic'] + ' 禁言到' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(danmu['endtime'])))
+            elif danmu['type'] == 'rankup':
+                rank_name = str()
+                if danmu['rkt'] == 1:
+                    rank_name = '周榜'
+                elif danmu['rkt'] == 2:
+                    rank_name = '总榜'
+                elif danmu['rkt'] == 4:
+                    rank_name = '日榜'
+
+                print(danmu['nk'] + ' 在' + rank_name + '中的排名提升到了' + danmu['rn'])
+            elif danmu['type'] == 'bc_buy_deserve':
+                chouqin_name = str()
+                if danmu['lev'] == 1:
+                    chouqin_name = '初级酬勤'
+                elif danmu['lev'] == 2:
+                    chouqin_name = '中级酬勤'
+                elif danmu['lev'] == 3:
+                    chouqin_name = '高级酬勤'
+            else:
+                print(danmu)
+        else:
+            print(danmu)
+
+
 if __name__ == '__main__':
-    room_id = '58428'
+    room_id = '52876'
     user_name = 'xiaaowei'#input('user name:')
     password = 'chpeui1990'#input('password:')
 
     danmu_client = DanmuClient(user_name, password, room_id)
     result = danmu_client.login_danmu_server()
     while True:
-        msg = input('message:')
-        danmu_client.send_one_danmu(msg)
-        #danmu = danmu_client.get_one_danmu()
-        #if 'type' in danmu:
-        #    if danmu['type'] == 'chatmsg':
-        #        try:
-        #            print(danmu['nn'] + ' : ' + danmu['txt'])
-        #        except:
-        #            print('meet some special characters')
-        #    elif danmu['type'] == 'uenter':
-        #         print(danmu['nn'] + 'level ' + str(danmu['level'] + ' 进入了房间'))
-        #else:
-        #    print(danmu)
+        #msg = input('message:')
+        #danmu_client.send_one_danmu(msg)
+        danmu = danmu_client.get_one_danmu()
+        danmu_client.parse_danmu(danmu)
 
