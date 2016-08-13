@@ -183,6 +183,7 @@ class DanmuClient:
         self.__sessionid = None
 
     def __get_next_data(self, socket):
+        data = None
         try:
             data_len_bytes = socket.recv(4)
             recv_len = len(data_len_bytes)
@@ -199,11 +200,12 @@ class DanmuClient:
                 data += socket.recv(left_len)
                 recv_len = len(data)
             #print(data)
-            recv_data_str = data[8:-1].decode()
+            recv_data_str = data[8:-1].decode('utf-8', 'ignore')
             return recv_data_str
         except os.error as e:
             print(e)
         except UnicodeDecodeError as e:
+            print(data)
             print(e)
 
     def __wrap_danmu_msg(self, content):
@@ -242,12 +244,6 @@ class DanmuClient:
             self.__send_msg(data, self.__recv_danmu_socket)
             time.sleep(45)
 
-    def __process_mrkl(self, danmu):
-        pass
-
-    def __process_chat_msg(self, danmu):
-        pass
-
     def login_danmu_auth_server(self):
         # First login douyu to get some msg
         if self.__douyu_login_client.login_douyu() == False:
@@ -266,6 +262,7 @@ class DanmuClient:
         self.__auth_socket.connect(auth_server)
 
         time_str = str(int(time.time()))
+
         vk_md5_str = hashlib.md5(bytes(time_str + '7oE9nPEG9xXV69phU31FYCLUagKeYtsF' + login_info['acf_devid'], 'utf-8')).hexdigest()
         password_md5 = hashlib.md5(bytes(self.__password, 'utf-8')).hexdigest()
         login_data = 'type@=loginreq/username@=' + login_info['acf_username'] + '/ct@=' + login_info['acf_ct'] +\
@@ -321,7 +318,9 @@ class DanmuClient:
 
     def get_one_danmu(self):
         recv_data_str = self.__get_next_data(self.__recv_danmu_socket)
-        return self.__parse_recv_msg(recv_data_str)
+        if recv_data_str:
+            return self.__parse_recv_msg(recv_data_str)
+        return None
 
     def send_one_danmu(self, msg):
         data = 'type@=chatmessage/receiver@=0/content@=' + msg +'/scope@=/col@=0'
@@ -329,65 +328,94 @@ class DanmuClient:
 
     def parse_danmu(self, danmu):
         if 'type' in danmu:
-
-            function_name = '__process_' + danmu['type']
-            call_function = function_name + '(self, danmu)'
-            eval(call_function)
-
-            if danmu['type'] == 'chatmsg':
-                try:
-                    print(danmu['nn'] + ' : ' + danmu['txt'])
-                except:
-                    print('meet some special characters')
-            elif danmu['type'] == 'uenter':
-                print(danmu['nn'] + '(level ' + str(danmu['level'] + ') 进入了房间'))
-            elif danmu['type'] == 'onlinegift':
-                print(danmu['nn'] + '领取了' + danmu['sil'] + '个鱼丸')
-            elif danmu['type'] == 'dgb':
-                if self.__room_info == None:
-                    self.__room_info = self.__douyu_login_client.get_room_info()
-                gitf_info_dict = self.__room_info['gift_info']
-                print(danmu['nn'] + '赠送了 ' + gitf_info_dict[danmu['gfid']]['data-giftname'])
-            elif danmu['type'] == 'ssd':
-                print(danmu['content'])
-            elif danmu['type'] == 'spbc':
-                print(danmu['sn'] + '赠送给' + danmu['dn'] + ' ' + danmu['gc'] + 'x' + danmu['gn'])
-            elif danmu['type'] == 'newblackres':
-                print(danmu['dnic'] + ' 被 ' + danmu['snic'] + ' 禁言到' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(danmu['endtime'])))
-            elif danmu['type'] == 'rankup':
-                rank_name = str()
-                if danmu['rkt'] == 1:
-                    rank_name = '周榜'
-                elif danmu['rkt'] == 2:
-                    rank_name = '总榜'
-                elif danmu['rkt'] == 4:
-                    rank_name = '日榜'
-
-                print(danmu['nk'] + ' 在' + rank_name + '中的排名提升到了' + danmu['rn'])
-            elif danmu['type'] == 'bc_buy_deserve':
-                chouqin_name = str()
-                if danmu['lev'] == 1:
-                    chouqin_name = '初级酬勤'
-                elif danmu['lev'] == 2:
-                    chouqin_name = '中级酬勤'
-                elif danmu['lev'] == 3:
-                    chouqin_name = '高级酬勤'
-            else:
-                print(danmu)
+            try:
+                function_name = 'process_' + danmu['type']
+                getattr(self, function_name)(danmu)
+            except AttributeError as e:
+                self.process_unkown_msg(danmu)
         else:
             print(danmu)
 
+    def process_mrkl(self, danmu):
+        pass
+
+    def process_chatmsg(self, danmu):
+        try:
+            print(danmu['nn'] + ' : ' + danmu['txt'])
+        except:
+            print('meet some special characters')
+
+    def process_uenter(self, danmu):
+        print(danmu['nn'] + '(level ' + str(danmu['level'] + ') 进入了房间'))
+
+    def process_onlinegift(self, danmu):
+        print(danmu['nn'] + '领取了' + danmu['sil'] + '个鱼丸')
+
+    def process_dgb(self, danmu):
+        if self.__room_info == None:
+            self.__room_info = self.__douyu_login_client.get_room_info()
+        gift_info_dict = self.__room_info['gift_info']
+        if 'hits' in danmu:
+            print(danmu['nn'] + ' 赠送了 ' + gift_info_dict[danmu['gfid']]['data-giftname'] + ' ' + danmu['hits'] + '连击')
+        else:
+            print(danmu['nn'] + ' 赠送了 ' + gift_info_dict[danmu['gfid']]['data-giftname'])
+
+    def process_ssd(self, danmu):
+        print(danmu['content'])
+
+    def process_spbc(self, danmu):
+        print(danmu['sn'] + ' 赠送给 ' + danmu['dn'] + ' ' + danmu['gc'] + ' x ' + danmu['gn'])
+
+    def process_blackres(self, danmu):
+        minutes = int(danmu['limittime']) / 60
+        print(danmu['dnic'] + ' 被 ' + danmu['snic'] + ' 禁言' + str(minutes) + '分钟' )
+
+    def process_newblackres(self, danmu):
+        print(danmu['dnic'] + ' 被 ' + danmu['snic'] + ' 禁言到' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(danmu['endtime']))))
+
+    def process_upgrade(self, danmu):
+        print(danmu['nn'] + ' 升级到了' + danmu['level'] + '级')
+
+    def process_srres(self, danmu):
+        print(danmu['nickname'] + ' 分享了该直播间,获得了 ' + danmu['exp'] + ' 经验')
+
+    rank_dict = {
+                 '1' : '周榜',
+                 '2' : '总榜',
+                 '4' : '日榜'
+                 }
+    def process_rankup(self, danmu):
+        print(danmu['nk'] + ' 在' + DanmuClient.rank_dict[danmu['rkt']] + '中的排名提升到了' + danmu['rn'])
+
+    buy_deserve_dict = {
+                        '1' : '初级酬勤',
+                        '2' : '中级酬勤',
+                        '3' : '高级酬勤'
+                        }
+    def process_bc_buy_deserve(self, danmu):
+        print(danmu)
+
+    def process_gbmres(self, danmu):
+        print(danmu['uname'] + ' 被封号')
+
+    def process_ggbb(self, danmu):
+        print(danmu['dnk'] + ' 领取了 ' + danmu['snk'] + ' 派送的' + danmu['sl'] + '鱼丸')
+
+    def process_unkown_msg(self, danmu):
+        print(danmu)
+
 
 if __name__ == '__main__':
-    room_id = '52876'
-    user_name = 'xiaaowei'#input('user name:')
-    password = 'chpeui1990'#input('password:')
+    room_id = '97376'
+    user_name = input('user name:')
+    password = input('password:')
 
     danmu_client = DanmuClient(user_name, password, room_id)
-    result = danmu_client.login_danmu_server()
+    result = danmu_client.login_danmu_server(True)
     while True:
         #msg = input('message:')
         #danmu_client.send_one_danmu(msg)
         danmu = danmu_client.get_one_danmu()
-        danmu_client.parse_danmu(danmu)
+        if danmu:
+            danmu_client.parse_danmu(danmu)
 
