@@ -606,8 +606,8 @@ if __name__ == '__main__':
     room_id = '97376'
 
 
-    user_name = 'xiaaowei'#input('user name:')
-    password = 'chpeui1990'#input('password:')
+    user_name = input('user name:')
+    password = input('password:')
 
     douyu_api = DouyuApi(user_name, password)
     douyu_api.get_room_info(room_id)
